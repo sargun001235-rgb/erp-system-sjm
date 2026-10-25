@@ -81,3 +81,53 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: err.message || 'Internal error' }, { status: 500 });
   }
 }
+
+export async function PUT(request: Request) {
+  try {
+    const body = await request.json();
+    const { id, ...updates } = body;
+
+    if (!id) {
+      return NextResponse.json({ error: 'Student ID is required for update.' }, { status: 400 });
+    }
+
+    const { data, error } = await supabase
+      .from('students')
+      .update(updates)
+      .eq('id', id)
+      .select()
+      .single();
+
+    if (error) {
+      return NextResponse.json({ error: error.message }, { status: 400 });
+    }
+
+    return NextResponse.json({ success: true, student: data });
+  } catch (err: any) {
+    return NextResponse.json({ error: err.message || 'Internal error' }, { status: 500 });
+  }
+}
+
+export async function DELETE(request: Request) {
+  try {
+    const { searchParams } = new URL(request.url);
+    const id = searchParams.get('id');
+
+    if (!id) {
+      return NextResponse.json({ error: 'Student ID is required for deletion.' }, { status: 400 });
+    }
+
+    const { error } = await supabase
+      .from('students')
+      .delete()
+      .eq('id', id);
+
+    if (error) {
+      return NextResponse.json({ error: error.message }, { status: 400 });
+    }
+
+    return NextResponse.json({ success: true });
+  } catch (err: any) {
+    return NextResponse.json({ error: err.message || 'Internal error' }, { status: 500 });
+  }
+}

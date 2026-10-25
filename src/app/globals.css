@@ -30,7 +30,7 @@
   background: #94a3b8;
 }
 
-/* Thermal Printer 3-inch (80mm) & Receipt Print Rules */
+/* Print Rules: Thermal Printer 3-inch (80mm) & A4 Bulk Class Slip Sheets */
 @media print {
   body {
     background: #ffffff !important;
@@ -54,9 +54,26 @@
     color: #000000 !important;
   }
 
+  /* A4 Bulk Page Printing (2 slips per sheet) */
+  .a4-sheet {
+    page-break-after: always;
+    break-after: page;
+    box-shadow: none !important;
+    border: none !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    width: 100% !important;
+    min-height: 270mm !important;
+  }
+
+  .avoid-break {
+    page-break-inside: avoid;
+    break-inside: avoid;
+  }
+
   @page {
-    margin: 4mm;
-    size: auto;
+    margin: 6mm;
+    size: A4 portrait;
   }
 }
 

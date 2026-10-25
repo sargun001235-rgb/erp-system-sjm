@@ -16,9 +16,14 @@ import {
   MapPin, 
   RefreshCw,
   X,
+  Download,
+  Edit2,
+  Trash2,
+  History,
+  FileText,
   Phone
 } from 'lucide-react';
-import { Student, SCHOOL_DETAILS } from '@/lib/supabase';
+import { Student, SCHOOL_DETAILS, FeeTransaction } from '@/lib/supabase';
 
 const CLASSES = ['All', 'Nursery', 'LKG', 'UKG', '1st', '2nd', '3rd', '4th', '5th', '6th', '7th', '8th', '9th', '10th', '11th', '12th'];
 
@@ -29,7 +34,13 @@ export default function DashboardPage() {
   const [selectedClass, setSelectedClass] = useState('All');
   const [selectedVillage, setSelectedVillage] = useState('All');
   const [defaultersOnly, setDefaultersOnly] = useState(false);
+
+  // Modals
   const [showAddModal, setShowAddModal] = useState(false);
+  const [editingStudent, setEditingStudent] = useState<Student | null>(null);
+  const [showHistoryModal, setShowHistoryModal] = useState(false);
+  const [recentTransactions, setRecentTransactions] = useState<FeeTransaction[]>([]);
+  const [loadingHistory, setLoadingHistory] = useState(false);
 
   // New Student form state
   const [newStudent, setNewStudent] = useState({
@@ -122,6 +133,117 @@ export default function DashboardPage() {
     }
   };
 
+  const handleUpdateStudent = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingStudent) return;
+    try {
+      const res = await fetch('/api/students', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(editingStudent),
+      });
+      const data = await res.json();
+      if (data.success) {
+        setEditingStudent(null);
+        fetchStudents();
+      } else {
+        alert(data.error || 'Failed to update student');
+      }
+    } catch (err) {
+      alert('Error updating student');
+    }
+  };
+
+  const handleDeleteStudent = async (student: Student) => {
+    if (!confirm(`Are you sure you want to delete student: ${student.name} (Adm: ${student.admission_no})?`)) {
+      return;
+    }
+    try {
+      const res = await fetch(`/api/students?id=${student.id}`, { method: 'DELETE' });
+      const data = await res.json();
+      if (data.success) {
+        setStudents(students.filter((s) => s.id !== student.id));
+      } else {
+        alert(data.error || 'Failed to delete student');
+      }
+    } catch (err) {
+      alert('Error deleting student');
+    }
+  };
+
+  // Export to Excel / CSV
+  const handleExportCSV = () => {
+    if (students.length === 0) {
+      alert('No students to export.');
+      return;
+    }
+
+    const headers = [
+      'Admission No',
+      'Student Name',
+      'Father Name',
+      'Mother Name',
+      'Class',
+      'Village',
+      'Phone',
+      'Annual Fee',
+      'Concession',
+      'Net Fee',
+      'Paid Fee',
+      'Balance Due',
+      'Status'
+    ];
+
+    const rows = students.map((s) => {
+      const net = Number(s.total_annual_fee || 0) - Number(s.concession_amount || 0);
+      const paid = Number(s.paid_amount || 0);
+      const due = Math.max(0, net - paid);
+      return [
+        `"${s.admission_no}"`,
+        `"${s.name}"`,
+        `"${s.father_name || ''}"`,
+        `"${s.mother_name || ''}"`,
+        `"${s.class_name}"`,
+        `"${s.village || ''}"`,
+        `"${s.phone || ''}"`,
+        s.total_annual_fee || 0,
+        s.concession_amount || 0,
+        net,
+        paid,
+        due,
+        due === 0 ? 'Cleared' : 'Due'
+      ].join(',');
+    });
+
+    // Add BOM for UTF-8 so Excel opens Indian names properly
+    const csvContent = '\uFEFF' + [headers.join(','), ...rows].join('\r\n');
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.setAttribute('download', `SJM_Students_${new Date().toISOString().slice(0, 10)}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
+  // Fetch recent transactions history
+  const handleOpenHistory = async () => {
+    setShowHistoryModal(true);
+    setLoadingHistory(true);
+    try {
+      const res = await fetch('/api/fees?limit=30');
+      const data = await res.json();
+      if (data.transactions) {
+        setRecentTransactions(data.transactions);
+      }
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setLoadingHistory(false);
+    }
+  };
+
   const getWhatsAppReminderUrl = (student: Student, dueAmount: number) => {
     const phone = (student.phone || '').replace(/\D/g, '');
     const cleanPhone = phone.length === 10 ? `91${phone}` : phone;
@@ -150,10 +272,10 @@ export default function DashboardPage() {
           </p>
         </div>
 
-        <div className="flex flex-wrap gap-3">
+        <div className="flex flex-wrap gap-2.5">
           <button
             onClick={() => setShowAddModal(true)}
-            className="inline-flex items-center gap-2 bg-blue-600 hover:bg-blue-500 text-white text-sm font-semibold px-4 py-2.5 rounded-xl shadow-lg shadow-blue-600/30 transition-all hover:scale-[1.02]"
+            className="inline-flex items-center gap-1.5 bg-blue-600 hover:bg-blue-500 text-white text-xs sm:text-sm font-semibold px-3.5 py-2.5 rounded-xl shadow-lg shadow-blue-600/30 transition-all hover:scale-[1.02]"
           >
             <UserPlus className="w-4 h-4" />
             Add Student
@@ -161,19 +283,36 @@ export default function DashboardPage() {
 
           <Link
             href="/fees"
-            className="inline-flex items-center gap-2 bg-emerald-600 hover:bg-emerald-500 text-white text-sm font-semibold px-4 py-2.5 rounded-xl shadow-lg shadow-emerald-600/30 transition-all hover:scale-[1.02]"
+            className="inline-flex items-center gap-1.5 bg-emerald-600 hover:bg-emerald-500 text-white text-xs sm:text-sm font-semibold px-3.5 py-2.5 rounded-xl shadow-lg shadow-emerald-600/30 transition-all hover:scale-[1.02]"
           >
             <ReceiptIndianRupee className="w-4 h-4" />
             Fee Collection
           </Link>
 
-          <Link
-            href="/scan"
-            className="inline-flex items-center gap-2 bg-purple-600 hover:bg-purple-500 text-white text-sm font-semibold px-4 py-2.5 rounded-xl shadow-lg shadow-purple-600/30 transition-all hover:scale-[1.02]"
+          <button
+            onClick={handleOpenHistory}
+            className="inline-flex items-center gap-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs sm:text-sm font-semibold px-3.5 py-2.5 rounded-xl border border-slate-700 transition-all"
           >
-            <ArrowUpRight className="w-4 h-4" />
-            Scan Register
+            <History className="w-4 h-4 text-amber-400" />
+            Receipts Log
+          </button>
+
+          <Link
+            href="/fees/bulk"
+            className="inline-flex items-center gap-1.5 bg-indigo-700 hover:bg-indigo-600 text-white text-xs sm:text-sm font-semibold px-3.5 py-2.5 rounded-xl shadow-lg shadow-indigo-700/30 transition-all hover:scale-[1.02]"
+          >
+            <FileText className="w-4 h-4 text-indigo-200" />
+            Bulk A4 Slips
           </Link>
+
+          <button
+            onClick={handleExportCSV}
+            className="inline-flex items-center gap-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs sm:text-sm font-semibold px-3.5 py-2.5 rounded-xl border border-slate-700 transition-all"
+            title="Download Excel CSV file"
+          >
+            <Download className="w-4 h-4 text-emerald-400" />
+            Export Excel
+          </button>
         </div>
       </div>
 
@@ -209,7 +348,7 @@ export default function DashboardPage() {
             <p className="text-xs font-semibold text-emerald-600 uppercase tracking-wider">Total Collected</p>
             <h3 className="text-2xl font-bold text-emerald-700 mt-1">₹{totalCollectedFee.toLocaleString('en-IN')}</h3>
             <p className="text-xs text-emerald-600/80 mt-1">
-              {totalExpectedFee > 0 ? `${Math.round((totalCollectedFee / totalExpectedFee) * 100)}% of total target` : 'No data'}
+              {totalExpectedFee > 0 ? `${Math.round((totalCollectedFee / totalExpectedFee) * 100)}% collected` : 'No data'}
             </p>
           </div>
           <div className="w-12 h-12 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center">
@@ -407,14 +546,14 @@ export default function DashboardPage() {
 
                       {/* Actions */}
                       <td className="py-3.5 px-4 text-center">
-                        <div className="flex items-center justify-center gap-2">
+                        <div className="flex items-center justify-center gap-1.5">
                           {/* Collect Fee Link */}
                           <Link
                             href={`/fees?student_id=${student.id}`}
-                            className="inline-flex items-center gap-1 text-xs font-bold bg-blue-50 text-blue-700 hover:bg-blue-100 px-3 py-1.5 rounded-lg border border-blue-200 transition-colors"
+                            className="inline-flex items-center gap-1 text-xs font-bold bg-blue-50 text-blue-700 hover:bg-blue-100 px-2.5 py-1.5 rounded-lg border border-blue-200 transition-colors"
                           >
                             <ReceiptIndianRupee className="w-3.5 h-3.5" />
-                            Pay Fee
+                            Pay
                           </Link>
 
                           {/* WhatsApp Reminder (if due) */}
@@ -423,13 +562,30 @@ export default function DashboardPage() {
                               href={getWhatsAppReminderUrl(student, due)}
                               target="_blank"
                               rel="noopener noreferrer"
-                              className="inline-flex items-center gap-1 text-xs font-bold bg-emerald-50 text-emerald-700 hover:bg-emerald-100 px-2.5 py-1.5 rounded-lg border border-emerald-200 transition-colors"
+                              className="inline-flex items-center text-xs font-bold bg-emerald-50 text-emerald-700 hover:bg-emerald-100 p-1.5 rounded-lg border border-emerald-200 transition-colors"
                               title="Send WhatsApp Due Reminder"
                             >
                               <MessageSquare className="w-3.5 h-3.5 text-emerald-600" />
-                              <span className="hidden sm:inline">WhatsApp</span>
                             </a>
                           )}
+
+                          {/* Edit button */}
+                          <button
+                            onClick={() => setEditingStudent(student)}
+                            className="p-1.5 text-slate-500 hover:text-blue-600 hover:bg-slate-100 rounded-lg transition-colors"
+                            title="Edit student"
+                          >
+                            <Edit2 className="w-3.5 h-3.5" />
+                          </button>
+
+                          {/* Delete button */}
+                          <button
+                            onClick={() => handleDeleteStudent(student)}
+                            className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+                            title="Delete student"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
                         </div>
                       </td>
                     </tr>
@@ -440,6 +596,220 @@ export default function DashboardPage() {
           </table>
         </div>
       </div>
+
+      {/* Edit Student Modal */}
+      {editingStudent && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-lg w-full p-6 space-y-4">
+            <div className="flex justify-between items-center border-b border-slate-100 pb-3">
+              <div>
+                <h3 className="text-lg font-bold text-slate-900">Edit Student Record</h3>
+                <p className="text-xs text-slate-500">Adm #{editingStudent.admission_no}</p>
+              </div>
+              <button
+                onClick={() => setEditingStudent(null)}
+                className="text-slate-400 hover:text-slate-600 p-1"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleUpdateStudent} className="space-y-4 text-sm">
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">Student Full Name *</label>
+                  <input
+                    type="text"
+                    required
+                    value={editingStudent.name}
+                    onChange={(e) => setEditingStudent({ ...editingStudent, name: e.target.value })}
+                    className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">Class *</label>
+                  <select
+                    value={editingStudent.class_name}
+                    onChange={(e) => setEditingStudent({ ...editingStudent, class_name: e.target.value })}
+                    className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                  >
+                    {CLASSES.filter((c) => c !== 'All').map((c) => (
+                      <option key={c} value={c}>{c}</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">Father's Name</label>
+                  <input
+                    type="text"
+                    value={editingStudent.father_name || ''}
+                    onChange={(e) => setEditingStudent({ ...editingStudent, father_name: e.target.value })}
+                    className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">Village / Pind</label>
+                  <input
+                    type="text"
+                    value={editingStudent.village || ''}
+                    onChange={(e) => setEditingStudent({ ...editingStudent, village: e.target.value })}
+                    className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">Phone Number</label>
+                  <input
+                    type="tel"
+                    value={editingStudent.phone || ''}
+                    onChange={(e) => setEditingStudent({ ...editingStudent, phone: e.target.value })}
+                    className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">Van Route</label>
+                  <input
+                    type="text"
+                    placeholder="e.g. Route 1"
+                    value={editingStudent.van_route || ''}
+                    onChange={(e) => setEditingStudent({ ...editingStudent, van_route: e.target.value })}
+                    className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-3 gap-3">
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">Annual Fee (₹)</label>
+                  <input
+                    type="number"
+                    value={editingStudent.total_annual_fee}
+                    onChange={(e) => setEditingStudent({ ...editingStudent, total_annual_fee: Number(e.target.value) })}
+                    className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">Concession (₹)</label>
+                  <input
+                    type="number"
+                    value={editingStudent.concession_amount}
+                    onChange={(e) => setEditingStudent({ ...editingStudent, concession_amount: Number(e.target.value) })}
+                    className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">Paid So Far (₹)</label>
+                  <input
+                    type="number"
+                    value={editingStudent.paid_amount}
+                    onChange={(e) => setEditingStudent({ ...editingStudent, paid_amount: Number(e.target.value) })}
+                    className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                  />
+                </div>
+              </div>
+
+              <div className="flex justify-end gap-3 pt-3 border-t border-slate-100">
+                <button
+                  type="button"
+                  onClick={() => setEditingStudent(null)}
+                  className="px-4 py-2 text-slate-600 hover:bg-slate-100 rounded-lg font-medium"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="px-5 py-2 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-lg shadow-md"
+                >
+                  Update Student
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Recent Receipts Modal */}
+      {showHistoryModal && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-2xl w-full p-6 space-y-4 max-h-[85vh] flex flex-col">
+            <div className="flex justify-between items-center border-b border-slate-100 pb-3">
+              <div>
+                <h3 className="text-lg font-bold text-slate-900 flex items-center gap-2">
+                  <ReceiptIndianRupee className="w-5 h-5 text-emerald-600" />
+                  Recent Fee Receipts Log
+                </h3>
+                <p className="text-xs text-slate-500">Latest transactions recorded</p>
+              </div>
+              <button
+                onClick={() => setShowHistoryModal(false)}
+                className="text-slate-400 hover:text-slate-600 p-1"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="flex-1 overflow-y-auto space-y-2">
+              {loadingHistory ? (
+                <div className="py-8 text-center text-slate-400">Loading transactions...</div>
+              ) : recentTransactions.length === 0 ? (
+                <div className="py-8 text-center text-slate-500 text-sm">No fee transactions found yet.</div>
+              ) : (
+                <div className="divide-y divide-slate-100 border border-slate-200 rounded-lg">
+                  {recentTransactions.map((t) => (
+                    <div key={t.id} className="p-3.5 flex justify-between items-center hover:bg-slate-50">
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <span className="font-mono font-bold text-xs bg-slate-100 px-2 py-0.5 rounded text-slate-700">
+                            {t.receipt_no}
+                          </span>
+                          <span className="font-bold text-slate-900 text-sm">{t.student?.name || 'Student'}</span>
+                          <span className="text-xs text-slate-500">({t.student?.class_name})</span>
+                        </div>
+                        <div className="text-xs text-slate-400 mt-0.5">
+                          {new Date(t.payment_date).toLocaleDateString('en-IN', {
+                            day: 'numeric',
+                            month: 'short',
+                            year: 'numeric',
+                            hour: '2-digit',
+                            minute: '2-digit'
+                          })} • Mode: <span className="font-semibold text-slate-600">{t.payment_mode}</span>
+                        </div>
+                      </div>
+                      <div className="text-right">
+                        <span className="text-base font-extrabold text-emerald-700 block">
+                          ₹{Number(t.amount_paid).toLocaleString('en-IN')}
+                        </span>
+                        <Link
+                          href={`/fees?student_id=${t.student_id}`}
+                          onClick={() => setShowHistoryModal(false)}
+                          className="text-[11px] font-semibold text-blue-600 hover:underline"
+                        >
+                          View / Print
+                        </Link>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            <div className="border-t border-slate-100 pt-3 text-right">
+              <button
+                type="button"
+                onClick={() => setShowHistoryModal(false)}
+                className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold rounded-lg text-xs"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Add Student Modal */}
       {showAddModal && (

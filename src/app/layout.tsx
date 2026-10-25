@@ -9,7 +9,8 @@ import {
   ScanLine, 
   PhoneCall, 
   MapPin, 
-  School
+  School,
+  FileText
 } from 'lucide-react';
 
 export const metadata: Metadata = {
@@ -83,6 +84,14 @@ export default function RootLayout({
                 >
                   <ReceiptIndianRupee className="w-4 h-4 text-emerald-600" />
                   <span>Fee Collection</span>
+                </Link>
+
+                <Link
+                  href="/fees/bulk"
+                  className="inline-flex items-center gap-1.5 px-3 py-2 text-sm font-semibold rounded-lg text-slate-700 hover:text-indigo-700 hover:bg-indigo-50 transition-colors"
+                >
+                  <FileText className="w-4 h-4 text-indigo-600" />
+                  <span className="hidden sm:inline">Bulk A4 Slips</span>
                 </Link>
 
                 <Link
